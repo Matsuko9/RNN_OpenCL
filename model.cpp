@@ -1,11 +1,17 @@
-#define __CL_ENABLE_EXCEPTIONS 
+#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_CL_1_2_DEFAULT_BUILD
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY 1
 
 #include <iostream>
 #include "Utils/utils.hpp"
-//#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #include <fstream>
 #include "xcl2.hpp"
-struct embedding 
+#include <math.h>
+
+struct embedding
 {
 	int embed_dim;
 	const char* file;
@@ -58,34 +64,25 @@ int *model(int *encoded_msg, int msg_len, struct embedding *embed, struct rnn *r
 	//print_encoded(encoded_msg, msg_len);
 	try {
 		/* ---- One Time OpenCL Initializations ---- */
-		std::vector<cl::Platform> platforms;
-		cl::Platform::get(&platforms);
 
-		std::vector<cl::Device> devices;
-		platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &devices);
+		std::vector<cl::Device> devices = xcl::get_xil_devices();
+		cl::Device device = devices[0];
 
-		cl::Context context(devices);
+		cl::Context context(device);
+		cl::CommandQueue queue(context, device, CL_QUEUE_PROFILING_ENABLE);
+		std::string device_name = device.getInfo<CL_DEVICE_NAME>();
 
-		cl::CommandQueue queue = cl::CommandQueue(context, devices[0]);
-		
-		std::ifstream sourceFile("kernel.cl");
-	      std::string sourceCode(
-	         std::istreambuf_iterator<char>(sourceFile),
-	         (std::istreambuf_iterator<char>()));
-	      cl::Program::Sources source(1,
-	         std::make_pair(sourceCode.c_str(),
-	         sourceCode.length() + 1));
-
-	    
-	    cl::Program program = cl::Program(context, source);
-	    program.build(devices);
-
+		std::string binaryFile = xcl::find_binary_file(device_name,"kernel");
+		cl::Program::Binaries bins = xcl::import_binary_file(binaryFile);
+		devices.resize(1);
+		cl::Program program(context, devices, bins);
+		//cl::Kernel krnl_vector_add(program,"vadd");
 	    cl::Kernel embed_kernel(program, "embed_kernel");
 	    cl::Kernel rnn_kernel(program, "rnn_kernel");
 	    cl::Kernel linear_kernel(program, "linear_kernel");
 
 		/* ---- One Time OpenCL Initializations ---- */
-	    
+
 		/* ---- Put Buffers on Device ---- */
 		cl::Buffer embedWeightsBuffer = cl::Buffer(context, CL_MEM_READ_ONLY, embed->vocab_size*embed->embed_dim*sizeof(float));
 		queue.enqueueWriteBuffer(embedWeightsBuffer, CL_TRUE, 0, embed->vocab_size*embed->embed_dim*sizeof(float), embedding_weights);
@@ -129,13 +126,23 @@ int *model(int *encoded_msg, int msg_len, struct embedding *embed, struct rnn *r
 
 		cl::NDRange global(msg_len,1);
 		cl::NDRange local(1,1);
+		cl::Event event;
+		queue.enqueueNDRangeKernel(embed_kernel, cl::NullRange, global, local,NULL,&event);
 
-		queue.enqueueNDRangeKernel(embed_kernel, cl::NullRange, global, local);
-		
 		queue.enqueueReadBuffer(embedResultsBuffer, CL_TRUE, 0, msg_len*embed->embed_dim*sizeof(float), embed_results);
-		
-		queue.finish();
 
+		queue.finish();
+		 cl_ulong time_start;
+		     cl_ulong time_end;
+
+		     event.wait();
+		    double total_time;
+		    event.getProfilingInfo(CL_PROFILING_COMMAND_END, &time_end);
+		    event.getProfilingInfo(CL_PROFILING_COMMAND_START, &time_start);
+		    total_time = time_end - time_start;
+
+		/* Results */
+		std::cout << "Execution time in milliseconds for convolution layer " << total_time*1.0e-6f << std::endl;
 		/* ---- Run Embedding Layer Ends---- */
 		float *hidden_state = new float[recurr->hidden_size];
 		for(int i=0; i<recurr->hidden_size; i++)
@@ -150,8 +157,8 @@ int *model(int *encoded_msg, int msg_len, struct embedding *embed, struct rnn *r
 		cl::Buffer hsizeBuffer = cl::Buffer(context, CL_MEM_READ_ONLY, sizeof(int));
 		queue.enqueueWriteBuffer(hsizeBuffer, CL_TRUE, 0, sizeof(int), &recurr->hidden_size);
 
-		cl::Buffer hiddenStateBuffer = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float)*embed->embed_dim);
-		queue.enqueueWriteBuffer(hiddenStateBuffer, CL_TRUE, 0, sizeof(float)*embed->embed_dim, hidden_state);
+		cl::Buffer hiddenStateBuffer = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(float)*recurr->hidden_size);
+		queue.enqueueWriteBuffer(hiddenStateBuffer, CL_TRUE, 0, sizeof(float)*recurr->hidden_size, hidden_state);
 
 		queue.finish();
 
@@ -177,10 +184,26 @@ int *model(int *encoded_msg, int msg_len, struct embedding *embed, struct rnn *r
 
 			queue.enqueueNDRangeKernel(rnn_kernel, cl::NullRange, global, local);
 			queue.enqueueReadBuffer(rnnOutputBuffer, CL_TRUE, 0, msg_len*sizeof(float)*recurr->hidden_size, hidden_results);
+			queue.enqueueReadBuffer(hiddenStateBuffer, CL_TRUE, 0, sizeof(float)*recurr->hidden_size, hidden_state);
 
 			//cl::CommandQueue finish;
 			//cl_command_queue queue = finish();
 			queue.finish();
+
+			for(int j=0; j<msg_len*recurr->hidden_size; j++)
+			{
+				*(hidden_results + j) = tanh(*(hidden_results + j));
+			}
+
+			for(int j=0; j<recurr->hidden_size; j++)
+			{
+				*(hidden_state + j) = *(hidden_results + i*recurr->hidden_size + j);
+			}
+
+			queue.enqueueWriteBuffer(hiddenStateBuffer, CL_TRUE, 0, sizeof(float)*recurr->hidden_size, hidden_state);
+
+			queue.finish();
+
 		}
 
 		/* ---- RNN Layer Ends ---- */
@@ -233,4 +256,4 @@ int *model(int *encoded_msg, int msg_len, struct embedding *embed, struct rnn *r
 	//print_encoded(encoded_original, msg_len);
 
 	return encoded_original;
-}	
+}

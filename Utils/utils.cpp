@@ -14,8 +14,7 @@ std::map<char, int> build_vocab_map()
 	{
 		vocab_map.insert(std::make_pair((char)(i + 65), i));
 	}
-
-	vocab_map.insert(std::make_pair((char)'-', 26));
+	//vocab_map.insert(std::make_pair((char)'-', 26));
 
 	return vocab_map;
 }

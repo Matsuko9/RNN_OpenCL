@@ -39,7 +39,18 @@ struct linear
 int main()
 {
 	/* ---- Initializations ---- */
-	std::string encrypted_string = "IMPWFTUDGIFGKFWDIPKVOTKHYHOSRXCGTJUVPJLORLMXGVGSENHWQQ-WDGRALOKQ";
+	std::string encrypted_string[10];
+	encrypted_string[0] = "BHCCXBXZGRHMXLELYBGRNGQYGCQGSQHHEGQGQAYGBYBLNBHYBEGEZGAGRYBIFFFF";
+	encrypted_string[1] = "GNUAHOVBIPWCJQXDKRYELSZFMTGNUAHOVBIPWCJQXDKRYELSZFMTGNUAHOVBIPWC";
+	encrypted_string[2] = "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKL";
+	encrypted_string[3] = "KYBMIBHIOMGECBSNPRAICIXBYXWGRIMZVRZOCDELRXJTHKVNYZUHZVCAGFHPLRUO";
+	encrypted_string[4] = "STZHPRYGPANJRDQAMAOAHGRNZGJMFZIBHTQRHBZSTYHFRWIQEZLGLYCRHBARWIXX";
+	encrypted_string[5] = "VZWEJRSAJDBMRPNDYDFDEARBWAMYXWIHEZNREHWVZSEXRKINTWUAUSLREHDRKIOO";
+	encrypted_string[6] = "BHCCXBXZGRHMXLELYBGRNGQYGCQGSQHHEGQGQAYGBYBLNBHYBEGEZGAGRYBIFFFF";
+	encrypted_string[7] = "GNUAHOVBIPWCJQXDKRYELSZFMTGNUAHOVBIPWCJQXDKRYELSZFMTGNUAHOVBIPWC";
+	encrypted_string[8] = "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKL";
+	encrypted_string[9] = "STZHPRYGPANJRDQAMAOAHGRNZGJMFZIBHTQRHBZSTYHFRWIQEZLGLYCRHBARWIXX";
+
 	static const char* embedding_file = "embed_weights.txt";
 	static const char* rnn_ih_file = "ih_weights.txt";
 	static const char* rnn_ih_bias_file = "ih_bias.txt";
@@ -82,14 +93,14 @@ int main()
 	/* ---- Pack Linear Data ---- */
 	
 	int *encoded_word;
-	encoded_word = encoded_string(encrypted_string, vocab_map);
-
-	int *model_out = new int[encrypted_string.length()];
-	model_out =	model(encoded_word, encrypted_string.length(), &embed, &recurr, &fc);
-
-	std::string unencrypted_msg = get_message(reverse_map, model_out, encrypted_string.length());
-
-	std::cout<<"UnEncrypyed Message : "<<unencrypted_msg<<std::endl;
-	return 0;
+	for (int i=0; i<10; i++)
+	{
+	encoded_word = encoded_string(encrypted_string[i], vocab_map);
+	int *model_out = new int[encrypted_string[i].length()];
+	model_out = model(encoded_word, encrypted_string[i].length(), &embed, &recurr, &fc);
+	std::string unencrypted_msg = get_message(reverse_map, model_out, encrypted_string[i].length());
+	std::cout<<"UnEncrypyed Message:"<<i<<"   "<< unencrypted_msg<<std::endl;
+	}
+return 0;
 
 }
